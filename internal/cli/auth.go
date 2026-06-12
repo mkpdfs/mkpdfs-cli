@@ -20,6 +20,7 @@ func addAuthCommands() {
 		&cobra.Command{Use: "logout", Short: "Clear credentials for the current environment", RunE: runLogout},
 		&cobra.Command{Use: "whoami", Short: "Show current user and plan", RunE: runWhoami},
 	)
+	requireSubcommand(authCmd)
 	rootCmd.AddCommand(authCmd)
 }
 
@@ -116,5 +117,20 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	}
 	_ = resp.Unmarshal(&profile)
 	fmt.Printf("Email: %s\nPlan:  %s\nEnv:   %s\n", profile.Data.Email, profile.Data.Subscription.Plan, env.Name)
+
+	// Best-effort current-month usage one-liner. On any error, skip silently.
+	if uresp, uerr := client.Get("/user/usage"); uerr == nil {
+		var usage struct {
+			Usage struct {
+				PagesGenerated    int `json:"pagesGenerated"`
+				TemplatesUploaded int `json:"templatesUploaded"`
+				TokensCreated     int `json:"tokensCreated"`
+			} `json:"usage"`
+		}
+		if uresp.Unmarshal(&usage) == nil {
+			fmt.Printf("Usage: %d PDFs, %d templates, %d tokens this month\n",
+				usage.Usage.PagesGenerated, usage.Usage.TemplatesUploaded, usage.Usage.TokensCreated)
+		}
+	}
 	return nil
 }

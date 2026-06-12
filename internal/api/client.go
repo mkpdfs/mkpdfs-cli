@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sim4gh/mkpdfs-cli/internal/auth"
@@ -112,19 +113,40 @@ func (c *Client) PostWithKey(path string, body any) (*Response, error) {
 }
 
 // parseAPIError prefers the structured body (backend status codes are
-// inconsistent — limits surface as 403 or 429 depending on the path).
+// inconsistent — limits surface as 403 or 429 depending on the path). The
+// backend has no stable error codes, so guidance is mapped by matching the
+// message text + status. The raw backend message is always kept as the base;
+// mapping only appends or replaces guidance.
 func parseAPIError(status int, body []byte) error {
 	var m struct {
 		Message string `json:"message"`
 		Error   string `json:"error"`
 	}
+	base := ""
 	if json.Unmarshal(body, &m) == nil {
 		if m.Message != "" {
-			return errors.New(m.Message)
-		}
-		if m.Error != "" {
-			return errors.New(m.Error)
+			base = m.Message
+		} else if m.Error != "" {
+			base = m.Error
 		}
 	}
-	return fmt.Errorf("API error (status %d)", status)
+	if base == "" {
+		return fmt.Errorf("API error (status %d)", status)
+	}
+
+	lower := strings.ToLower(base)
+	authish := strings.Contains(lower, "unauthorized") ||
+		strings.Contains(lower, "token") ||
+		strings.Contains(lower, "authentication")
+
+	switch {
+	case (status == 401 || status == 403) && authish:
+		return errors.New("session expired or invalid. Run: mkp auth login")
+	case status == 402 || strings.Contains(lower, "subscription"):
+		return errors.New(base + " — see https://mkpdfs.com/pricing")
+	case (status == 403 || status == 429) && strings.Contains(lower, "limit"):
+		return errors.New(base + " — check: mkp usage")
+	default:
+		return errors.New(base)
+	}
 }

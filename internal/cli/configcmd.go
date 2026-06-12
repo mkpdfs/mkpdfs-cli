@@ -42,6 +42,7 @@ func addConfigCommands() {
 	}
 
 	cfgCmd.AddCommand(listCmd, pathCmd, setCmd, getCmd)
+	requireSubcommand(cfgCmd)
 	rootCmd.AddCommand(cfgCmd)
 }
 

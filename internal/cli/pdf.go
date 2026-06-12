@@ -40,18 +40,24 @@ func addPdfCommands() {
 	_ = genCmd.MarkFlagRequired("template")
 	_ = genCmd.MarkFlagRequired("data")
 	pdfCmd.AddCommand(genCmd)
+	requireSubcommand(pdfCmd)
 	rootCmd.AddCommand(pdfCmd)
 }
 
 // resolveTemplateID maps a local file path to its templateId via .mkpdfs.json.
 // If ref is not a file on disk it is assumed to already be a template ID.
-func resolveTemplateID(ref string) (string, error) {
+// When ref IS a local file and a .mkpdfs.json is loaded, the env guard applies
+// so a generate never crosses environments.
+func resolveTemplateID(ref, activeEnv string) (string, error) {
 	if _, err := os.Stat(ref); err != nil {
 		return ref, nil // not a file → assume it's already an ID
 	}
 	cwd, _ := os.Getwd()
 	m, err := localmap.Load(cwd)
 	if err != nil {
+		return "", err
+	}
+	if err := guardMapEnv(m, activeEnv); err != nil {
 		return "", err
 	}
 	if e, ok := m.Templates[localmap.Key(ref)]; ok {
@@ -66,7 +72,7 @@ func runPdfGenerate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	templateID, err := resolveTemplateID(pdfTemplate)
+	templateID, err := resolveTemplateID(pdfTemplate, env.Name)
 	if err != nil {
 		return err
 	}

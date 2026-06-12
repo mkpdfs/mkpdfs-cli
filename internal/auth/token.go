@@ -67,12 +67,3 @@ func IsTokenExpired(token string) bool {
 	}
 	return time.Unix(payload.Exp, 0).Before(time.Now().Add(60 * time.Second))
 }
-
-// GetTokenExpiry returns the expiration time embedded in the JWT.
-func GetTokenExpiry(token string) (time.Time, error) {
-	payload, err := DecodeJWT(token)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return time.Unix(payload.Exp, 0), nil
-}

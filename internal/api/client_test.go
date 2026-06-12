@@ -7,12 +7,12 @@ import (
 )
 
 func TestParseAPIError(t *testing.T) {
-	// structured body wins over status text
+	// 429 + "limit" → keep backend message, append usage guidance
 	err := parseAPIError(429, []byte(`{"message":"Rate limit exceeded. Please try again later."}`))
-	if err.Error() != "Rate limit exceeded. Please try again later." {
+	if err.Error() != "Rate limit exceeded. Please try again later. — check: mkp usage" {
 		t.Fatalf("got %q", err.Error())
 	}
-	// error field fallback
+	// error field fallback (no mapping applies)
 	err = parseAPIError(400, []byte(`{"error":"slow_down"}`))
 	if err.Error() != "slow_down" {
 		t.Fatalf("got %q", err.Error())
@@ -21,6 +21,78 @@ func TestParseAPIError(t *testing.T) {
 	err = parseAPIError(502, []byte("Bad Gateway"))
 	if err.Error() != "API error (status 502)" {
 		t.Fatalf("got %q", err.Error())
+	}
+}
+
+func TestParseAPIErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{
+			name:   "401 unauthorized → login guidance",
+			status: 401,
+			body:   `{"message":"Unauthorized"}`,
+			want:   "session expired or invalid. Run: mkp auth login",
+		},
+		{
+			name:   "403 invalid token → login guidance",
+			status: 403,
+			body:   `{"message":"Invalid token"}`,
+			want:   "session expired or invalid. Run: mkp auth login",
+		},
+		{
+			name:   "401 Authentication failed → login guidance",
+			status: 401,
+			body:   `{"message":"Authentication failed"}`,
+			want:   "session expired or invalid. Run: mkp auth login",
+		},
+		{
+			name:   "402 → pricing guidance appended",
+			status: 402,
+			body:   `{"message":"Payment required"}`,
+			want:   "Payment required — see https://mkpdfs.com/pricing",
+		},
+		{
+			name:   "subscription message → pricing guidance appended",
+			status: 403,
+			body:   `{"message":"Your subscription is not active"}`,
+			want:   "Your subscription is not active — see https://mkpdfs.com/pricing",
+		},
+		{
+			name:   "403 limit → usage guidance appended",
+			status: 403,
+			body:   `{"message":"Template limit reached"}`,
+			want:   "Template limit reached — check: mkp usage",
+		},
+		{
+			name:   "429 limit → usage guidance appended",
+			status: 429,
+			body:   `{"message":"Monthly page limit exceeded"}`,
+			want:   "Monthly page limit exceeded — check: mkp usage",
+		},
+		{
+			name:   "unmapped 400 → raw message",
+			status: 400,
+			body:   `{"message":"Bad request: missing field"}`,
+			want:   "Bad request: missing field",
+		},
+		{
+			name:   "404 token wording but not auth status → raw (no limit/subscription)",
+			status: 404,
+			body:   `{"message":"Template not found"}`,
+			want:   "Template not found",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := parseAPIError(tc.status, []byte(tc.body))
+			if err.Error() != tc.want {
+				t.Fatalf("status=%d body=%s\n got:  %q\n want: %q", tc.status, tc.body, err.Error(), tc.want)
+			}
+		})
 	}
 }
 
@@ -67,7 +139,7 @@ func TestErrorResponseReturnsParsedError(t *testing.T) {
 
 	c := &Client{BaseURL: srv.URL}
 	resp, err := c.do("GET", "/x", nil, nil)
-	if err == nil || err.Error() != "Template limit reached" {
+	if err == nil || err.Error() != "Template limit reached — check: mkp usage" {
 		t.Fatalf("want parsed message, got %v", err)
 	}
 	if resp == nil || resp.StatusCode != 403 {

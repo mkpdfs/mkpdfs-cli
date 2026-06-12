@@ -7,7 +7,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
-	"github.com/sim4gh/mkpdfs-cli/internal/api"
 	"github.com/sim4gh/mkpdfs-cli/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -33,10 +32,9 @@ func addTokensCommands() {
 		Short: "Create a new API token",
 		RunE:  runTokensCreate,
 	}
-	createCmd.Flags().StringVar(&tokenName, "name", "", "token name (required)")
+	createCmd.Flags().StringVar(&tokenName, "name", "CLI token", "token name")
 	createCmd.Flags().IntVar(&tokenExpiresDays, "expires-days", 0, "days until token expires (0 = never)")
 	createCmd.Flags().BoolVar(&tokenSave, "save", false, "save token as the CLI API key for this environment")
-	_ = createCmd.MarkFlagRequired("name")
 
 	revokeCmd := &cobra.Command{
 		Use:   "revoke <tokenId>",
@@ -46,6 +44,7 @@ func addTokensCommands() {
 	}
 
 	tokCmd.AddCommand(listCmd, createCmd, revokeCmd)
+	requireSubcommand(tokCmd)
 	rootCmd.AddCommand(tokCmd)
 }
 
@@ -83,7 +82,7 @@ func runTokensList(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(body.Tokens) == 0 {
-		fmt.Println("No tokens found. Use `mkp tokens create --name <name>` to create one.")
+		fmt.Println("No tokens found. Use `mkp tokens create` to create one.")
 		return nil
 	}
 
@@ -198,14 +197,4 @@ func runTokensRevoke(tokenID string) error {
 
 	fmt.Printf("%s Revoked token %s\n", color.GreenString("✓"), tokenID)
 	return nil
-}
-
-// apiKeyClient returns a client authenticated with the API key (not JWT).
-// Helper for cases where tokens commands want to test API key auth.
-func apiKeyClient() (*api.Client, error) {
-	env, err := currentEnv()
-	if err != nil {
-		return nil, err
-	}
-	return api.New(env).WithAPIKey()
 }

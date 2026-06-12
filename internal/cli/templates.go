@@ -80,7 +80,19 @@ func addTemplatesCommands() {
 	deleteCmd.Flags().BoolVar(&delForce, "force", false, "skip confirmation prompt")
 
 	tplCmd.AddCommand(listCmd, getCmd, pullCmd, pushCmd, deleteCmd)
+	requireSubcommand(tplCmd)
 	rootCmd.AddCommand(tplCmd)
+}
+
+// sanitizeFilename makes a template name safe to use as a local filename by
+// replacing path separators and whitespace with hyphens.
+func sanitizeFilename(name string) string {
+	r := strings.NewReplacer("/", "-", "\\", "-", " ", "-")
+	out := strings.Trim(r.Replace(name), "-")
+	if out == "" {
+		out = "template"
+	}
+	return out
 }
 
 func confirm(prompt string) bool {
@@ -383,7 +395,7 @@ func runTemplatesPull(cmd *cobra.Command, args []string) error {
 
 	outPath := pullOut
 	if outPath == "" {
-		outPath = tpl.Name + ".hbs"
+		outPath = sanitizeFilename(tpl.Name) + ".hbs"
 	}
 
 	if err := os.WriteFile(outPath, []byte(tpl.Content), 0644); err != nil {
@@ -401,6 +413,9 @@ func runTemplatesPull(cmd *cobra.Command, args []string) error {
 	}
 	env, err := currentEnv()
 	if err != nil {
+		return err
+	}
+	if err := guardMapEnv(m, env.Name); err != nil {
 		return err
 	}
 	if m.Environment == "" {

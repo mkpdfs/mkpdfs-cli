@@ -85,6 +85,42 @@ func TestUsageErrorsCarrySentinel(t *testing.T) {
 	}
 }
 
+func TestSanitizeFilename(t *testing.T) {
+	cases := map[string]string{
+		"invoice":         "invoice",
+		"My Invoice":      "My-Invoice",
+		"reports/2026/q1": "reports-2026-q1",
+		`win\path name`:   "win-path-name",
+		"  spaced  ":      "spaced",
+		"///":             "template",
+		"":                "template",
+	}
+	for in, want := range cases {
+		if got := sanitizeFilename(in); got != want {
+			t.Errorf("sanitizeFilename(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestGuardMapEnv(t *testing.T) {
+	// Unbound map → no guard.
+	if err := guardMapEnv(&localmap.Map{}, "dev"); err != nil {
+		t.Fatalf("unbound map must pass, got %v", err)
+	}
+	// Same env → no guard.
+	if err := guardMapEnv(&localmap.Map{Environment: "dev"}, "dev"); err != nil {
+		t.Fatalf("matching env must pass, got %v", err)
+	}
+	// Cross-env → ErrUsage-wrapped error.
+	err := guardMapEnv(&localmap.Map{Environment: "prod"}, "dev")
+	if err == nil {
+		t.Fatal("cross-env must abort")
+	}
+	if !errors.Is(err, ErrUsage) {
+		t.Fatal("cross-env error must wrap ErrUsage (exit code 2)")
+	}
+}
+
 func TestParsePushResultRejectsMissingTemplateID(t *testing.T) {
 	if _, err := parsePushResult([]byte(`{"name":"demo","updatedAt":"2026-06-12T00:00:00Z"}`)); err == nil {
 		t.Fatal("missing templateId must be rejected")
