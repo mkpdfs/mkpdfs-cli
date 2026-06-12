@@ -25,7 +25,7 @@ var knownHelpers = map[string]bool{
 	"this":   true,
 }
 
-var varRe = regexp.MustCompile(`{{[#/]?\s*(?:each\s+|if\s+|with\s+)?([A-Za-z_][A-Za-z0-9_.]*)`)
+var varRe = regexp.MustCompile(`{{[#/]?\s*(?:each\s+|if\s+|unless\s+|with\s+)?([A-Za-z_][A-Za-z0-9_.]*)`)
 
 // Validate parses the template and returns the referenced variable names.
 // raymond.Parse only catches structural syntax errors (e.g. unclosed blocks);

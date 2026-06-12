@@ -28,3 +28,16 @@ func TestBackendCustomHelpersParse(t *testing.T) {
 		t.Fatalf("custom helpers must parse: %v", err)
 	}
 }
+
+func TestUnlessBlockCapturesVariable(t *testing.T) {
+	vars, err := Validate(`{{#unless isAdmin}}hidden{{/unless}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v == "isAdmin" {
+			return
+		}
+	}
+	t.Fatalf("expected isAdmin in vars, got %v", vars)
+}
