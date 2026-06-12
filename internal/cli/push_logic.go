@@ -35,6 +35,7 @@ func decidePush(in pushInput) (pushDecision, error) {
 			".mkpdfs.json is bound to %q but the active environment is %q — no cross-env writes. Use --env %s or a different directory: %w",
 			in.Map.Environment, in.ActiveEnv, in.Map.Environment, ErrUsage)
 	}
+	// --id is an explicit override: it intentionally bypasses the account and conflict guards (but never the env guard above).
 	if in.ForceID != "" {
 		return pushDecision{Action: pushUpdate, TemplateID: in.ForceID}, nil
 	}

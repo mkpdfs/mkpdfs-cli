@@ -84,3 +84,16 @@ func TestUsageErrorsCarrySentinel(t *testing.T) {
 		t.Fatal("guard errors must wrap ErrUsage (exit code 2)")
 	}
 }
+
+func TestParsePushResultRejectsMissingTemplateID(t *testing.T) {
+	if _, err := parsePushResult([]byte(`{"name":"demo","updatedAt":"2026-06-12T00:00:00Z"}`)); err == nil {
+		t.Fatal("missing templateId must be rejected")
+	}
+	got, err := parsePushResult([]byte(`{"templateId":"t1","name":"demo","fileSize":58,"updatedAt":"2026-06-12T00:00:00Z"}`))
+	if err != nil || got.TemplateID != "t1" || got.Name != "demo" || got.FileSize != 58 {
+		t.Fatalf("valid body must parse, got %+v err=%v", got, err)
+	}
+	if _, err := parsePushResult([]byte(`not json`)); err == nil {
+		t.Fatal("invalid JSON must be rejected")
+	}
+}

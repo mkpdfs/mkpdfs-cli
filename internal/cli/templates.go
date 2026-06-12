@@ -184,17 +184,28 @@ func runTemplatesPush(file string) error {
 		resp, err = client.Post("/templates/upload", body)
 	} else {
 		resp, err = client.Put("/templates/"+decision.TemplateID, body)
+		if err != nil && resp != nil && resp.StatusCode == 404 {
+			return fmt.Errorf("remote template %s no longer exists — your .mkpdfs.json entry is stale. Push with --new to create it again: %w",
+				decision.TemplateID, ErrUsage)
+		}
 	}
 	if err != nil {
 		return err
 	}
 
-	// Both uploadTemplate (201) and updateTemplate (200) return the template
-	// object at the TOP LEVEL (not nested under "template").
-	var result templateMeta
-	if err := resp.Unmarshal(&result); err != nil {
-		return fmt.Errorf("parsing API response: %w", err)
+	result, err := parsePushResult(resp.Body)
+	if err != nil {
+		return err
 	}
+
+	// Report success BEFORE touching .mkpdfs.json — the push already happened
+	// server-side, so a local save failure must not mask it (exit stays 0).
+	verb := "Created"
+	if decision.Action == pushUpdate {
+		verb = "Updated"
+	}
+	fmt.Printf("%s %s %q (%s) — %s\n",
+		color.GreenString("✓"), verb, result.Name, result.TemplateID, util.FormatBytes(result.FileSize))
 
 	if m.Environment == "" {
 		m.Environment = env.Name
@@ -208,16 +219,24 @@ func runTemplatesPush(file string) error {
 		RemoteUpdatedAt: result.UpdatedAt,
 	}
 	if err := localmap.Save(cwd, m); err != nil {
-		return err
+		fmt.Printf("warning: push succeeded but .mkpdfs.json could not be updated: %v\n", err)
 	}
-
-	verb := "Created"
-	if decision.Action == pushUpdate {
-		verb = "Updated"
-	}
-	fmt.Printf("%s %s %q (%s) — %s\n",
-		color.GreenString("✓"), verb, result.Name, result.TemplateID, util.FormatBytes(result.FileSize))
 	return nil
+}
+
+// parsePushResult parses the push response body. Both uploadTemplate (201) and
+// updateTemplate (200) return the template object at the TOP LEVEL (not nested
+// under "template"). An empty templateId means an unexpected shape — recording
+// it in .mkpdfs.json would poison future pushes, so reject it.
+func parsePushResult(body []byte) (*templateMeta, error) {
+	var result templateMeta
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parsing API response: %w", err)
+	}
+	if result.TemplateID == "" {
+		return nil, fmt.Errorf("unexpected response shape from push (no templateId) — not updating .mkpdfs.json")
+	}
+	return &result, nil
 }
 
 func runTemplatesDelete(id string) error {
@@ -232,6 +251,21 @@ func runTemplatesDelete(id string) error {
 		return err
 	}
 	fmt.Printf("%s Deleted %s\n", color.GreenString("✓"), id)
+
+	// Prune any stale local mapping for the deleted template. Load errors are
+	// ignored on purpose — the cwd may be unrelated to this template.
+	if cwd, err := os.Getwd(); err == nil {
+		if m, err := localmap.Load(cwd); err == nil {
+			for key, entry := range m.Templates {
+				if entry.TemplateID == id {
+					delete(m.Templates, key)
+					if err := localmap.Save(cwd, m); err == nil {
+						fmt.Printf("  (removed stale entry %q from .mkpdfs.json)\n", key)
+					}
+				}
+			}
+		}
+	}
 	return nil
 }
 
