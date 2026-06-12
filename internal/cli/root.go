@@ -46,4 +46,5 @@ func init() {
 
 	addAuthCommands()
 	addTemplatesCommands()
+	addPdfCommands()
 }
