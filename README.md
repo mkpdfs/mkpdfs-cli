@@ -17,7 +17,14 @@ make build          # produces ./mkp-cli
 make dev-link       # symlinks ./mkp-cli → /opt/homebrew/bin/mkp-cli
 ```
 
-There is no pre-built binary distribution yet. The binary name is `mkp-cli`; symlink or alias it to `mkp` if you prefer the shorter name.
+### Binary naming convention
+
+Two binaries coexist deliberately (same convention as nikte-cli):
+
+- **`mkp`** — the production binary, installed from Homebrew (`brew install mkpdfs/mkpdfs/mkpdfs`, built by GoReleaser from `.goreleaser.yml` on tagged releases).
+- **`mkp-cli`** — the local dev build (`make build` / `make dev-link`), named differently so it never shadows the brew-installed `mkp`.
+
+No Homebrew release has been tagged yet; until then, build from source.
 
 ---
 

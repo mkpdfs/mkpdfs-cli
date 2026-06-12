@@ -1,5 +1,8 @@
 .PHONY: build clean test test-integration dev-link fmt lint
 
+# Local dev/test binary is `mkp-cli` so it never shadows the production `mkp`
+# installed from Homebrew. The release binary (named `mkp`) is built by GoReleaser
+# (.goreleaser.yml), not this Makefile.
 VERSION ?= 0.1.0
 BINARY_NAME = mkp-cli
 LDFLAGS = -ldflags "-s -w -X github.com/sim4gh/mkpdfs-cli/internal/cli.Version=$(VERSION)"

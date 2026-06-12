@@ -1,0 +1,54 @@
+version: 2
+
+# Release binary is `mkp` (Homebrew). Local dev builds are `mkp-cli` (Makefile),
+# so the dev build never shadows the brew-installed production binary.
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/mkp
+    binary: mkp
+    ldflags:
+      - -s -w -X github.com/sim4gh/mkpdfs-cli/internal/cli.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+brews:
+  - name: mkpdfs
+    repository:
+      owner: mkpdfs
+      name: homebrew-mkpdfs
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://mkpdfs.com"
+    description: "mkpdfs CLI - Handlebars templates to PDF from your terminal"
+    license: "MIT"
+    install: |
+      bin.install "mkp"
+    test: |
+      system "#{bin}/mkp", "--version"
