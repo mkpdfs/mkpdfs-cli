@@ -45,4 +45,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output")
 
 	addAuthCommands()
+	addTemplatesCommands()
 }
