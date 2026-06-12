@@ -48,6 +48,23 @@ func TestCredsCreatesEnvLazily(t *testing.T) {
 	}
 }
 
+func TestLoadErrorDoesNotCorruptSingleton(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.json")
+	overridePathForTest(p)
+	if err := os.WriteFile(p, []byte("{not valid json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error loading invalid JSON, got nil")
+	}
+	// A second Load must surface the same error again — not a silently-empty config.
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on second Load, got nil (singleton was corrupted)")
+	}
+}
+
 func TestMaskToken(t *testing.T) {
 	if got := MaskToken("tlfy_1234567890abcdef"); got != "tlfy...cdef" {
 		t.Fatalf("got %q", got)

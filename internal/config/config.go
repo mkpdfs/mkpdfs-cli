@@ -51,19 +51,21 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
-	instance = &Config{}
+	cfg := &Config{}
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			instance = cfg
 			return instance, nil
 		}
 		return nil, err
 	}
 	if len(data) > 0 {
-		if err := json.Unmarshal(data, instance); err != nil {
+		if err := json.Unmarshal(data, cfg); err != nil {
 			return nil, err
 		}
 	}
+	instance = cfg
 	return instance, nil
 }
 
@@ -101,6 +103,8 @@ func saveLocked() error {
 }
 
 func Path() string {
+	mu.Lock()
+	defer mu.Unlock()
 	if filePath == "" {
 		filePath, _ = GetConfigPath()
 	}
