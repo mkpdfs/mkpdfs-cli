@@ -43,4 +43,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "machine-readable JSON output")
 	rootCmd.PersistentFlags().BoolVar(&flagYes, "yes", false, "assume yes for all prompts")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output")
+
+	addAuthCommands()
 }
