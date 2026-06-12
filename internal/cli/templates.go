@@ -1,13 +1,18 @@
 package cli
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/sim4gh/mkpdfs-cli/internal/api"
+	"github.com/sim4gh/mkpdfs-cli/internal/auth"
+	"github.com/sim4gh/mkpdfs-cli/internal/config"
 	"github.com/sim4gh/mkpdfs-cli/internal/hbs"
 	"github.com/sim4gh/mkpdfs-cli/internal/localmap"
 	"github.com/sim4gh/mkpdfs-cli/internal/util"
@@ -23,7 +28,14 @@ type templateMeta struct {
 	Content     string `json:"content,omitempty"`
 }
 
-var pullOut string
+var (
+	pullOut    string
+	pushID     string
+	pushNew    bool
+	pushForce  bool
+	pushDryRun bool
+	delForce   bool
+)
 
 func addTemplatesCommands() {
 	tplCmd := &cobra.Command{Use: "templates", Aliases: []string{"tpl"}, Short: "Manage templates"}
@@ -48,8 +60,179 @@ func addTemplatesCommands() {
 	}
 	pullCmd.Flags().StringVarP(&pullOut, "out", "o", "", "output file (default <name>.hbs)")
 
-	tplCmd.AddCommand(listCmd, getCmd, pullCmd)
+	pushCmd := &cobra.Command{
+		Use:   "push <file>",
+		Short: "Create or update a template from a .hbs file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  func(cmd *cobra.Command, args []string) error { return runTemplatesPush(args[0]) },
+	}
+	pushCmd.Flags().StringVar(&pushID, "id", "", "force update of a specific template ID")
+	pushCmd.Flags().BoolVar(&pushNew, "new", false, "force create a new template (ignore local mapping)")
+	pushCmd.Flags().BoolVar(&pushForce, "force", false, "override account/conflict guards")
+	pushCmd.Flags().BoolVar(&pushDryRun, "dry-run", false, "print what would happen without writing")
+
+	deleteCmd := &cobra.Command{
+		Use:   "delete <templateId>",
+		Short: "Delete a template",
+		Args:  cobra.ExactArgs(1),
+		RunE:  func(cmd *cobra.Command, args []string) error { return runTemplatesDelete(args[0]) },
+	}
+	deleteCmd.Flags().BoolVar(&delForce, "force", false, "skip confirmation prompt")
+
+	tplCmd.AddCommand(listCmd, getCmd, pullCmd, pushCmd, deleteCmd)
 	rootCmd.AddCommand(tplCmd)
+}
+
+func confirm(prompt string) bool {
+	if flagYes {
+		return true
+	}
+	fmt.Printf("%s [y/N]: ", prompt)
+	var resp string
+	fmt.Scanln(&resp)
+	return resp == "y" || resp == "Y" || resp == "yes"
+}
+
+func runTemplatesPush(file string) error {
+	env, err := currentEnv()
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", file, err)
+	}
+	if _, err := hbs.Validate(string(content)); err != nil {
+		return fmt.Errorf("handlebars syntax error in %s: %v: %w", file, err, ErrUsage)
+	}
+
+	client, err := jwtClient()
+	if err != nil {
+		return err
+	}
+
+	var userID string
+	if creds := config.Get().Creds(env.Name); creds != nil && creds.IDToken != "" {
+		if payload, err := auth.DecodeJWT(creds.IDToken); err == nil && payload != nil {
+			userID = payload.Sub
+		}
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	m, err := localmap.Load(cwd)
+	if err != nil {
+		return err
+	}
+
+	// If the entry is known and we're not forcing create/specific-id, fetch the
+	// remote updatedAt so decidePush can detect drift. On fetch error, treat as
+	// unknown ("") — decidePush then skips the conflict check.
+	var remoteUpdatedAt string
+	entry, known := m.Templates[localmap.Key(file)]
+	if known && !pushNew && pushID == "" {
+		if remote, ferr := fetchTemplate(entry.TemplateID); ferr == nil {
+			remoteUpdatedAt = remote.UpdatedAt
+		} else if flagVerbose {
+			fmt.Printf("warning: could not fetch remote template %s for conflict check: %v\n", entry.TemplateID, ferr)
+		}
+	}
+
+	decision, err := decidePush(pushInput{
+		File:            file,
+		Map:             m,
+		ActiveEnv:       env.Name,
+		UserID:          userID,
+		RemoteUpdatedAt: remoteUpdatedAt,
+		Force:           pushForce,
+		ForceID:         pushID,
+		ForceNew:        pushNew,
+	})
+	if err != nil {
+		return err
+	}
+
+	name := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+
+	if pushDryRun {
+		if decision.Action == pushCreate {
+			fmt.Printf("dry-run: would CREATE %q in %s (%s)\n", name, env.Name, util.FormatBytes(int64(len(content))))
+		} else {
+			fmt.Printf("dry-run: would UPDATE %s %q in %s (%s)\n", decision.TemplateID, name, env.Name, util.FormatBytes(int64(len(content))))
+		}
+		return nil
+	}
+
+	if env.Name == "prod" && !confirm(fmt.Sprintf("Push %q to PRODUCTION?", name)) {
+		return nil
+	}
+	if decision.Action == pushCreate && !confirm(fmt.Sprintf("Create new template %q?", name)) {
+		return nil
+	}
+
+	body := map[string]string{
+		"name":            name,
+		"content":         base64.StdEncoding.EncodeToString(content),
+		"contentEncoding": "base64",
+	}
+
+	var resp *api.Response
+	if decision.Action == pushCreate {
+		resp, err = client.Post("/templates/upload", body)
+	} else {
+		resp, err = client.Put("/templates/"+decision.TemplateID, body)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Both uploadTemplate (201) and updateTemplate (200) return the template
+	// object at the TOP LEVEL (not nested under "template").
+	var result templateMeta
+	if err := resp.Unmarshal(&result); err != nil {
+		return fmt.Errorf("parsing API response: %w", err)
+	}
+
+	if m.Environment == "" {
+		m.Environment = env.Name
+	}
+	if m.UserID == "" {
+		m.UserID = userID
+	}
+	m.Templates[localmap.Key(file)] = localmap.Entry{
+		TemplateID:      result.TemplateID,
+		Name:            result.Name,
+		RemoteUpdatedAt: result.UpdatedAt,
+	}
+	if err := localmap.Save(cwd, m); err != nil {
+		return err
+	}
+
+	verb := "Created"
+	if decision.Action == pushUpdate {
+		verb = "Updated"
+	}
+	fmt.Printf("%s %s %q (%s) — %s\n",
+		color.GreenString("✓"), verb, result.Name, result.TemplateID, util.FormatBytes(result.FileSize))
+	return nil
+}
+
+func runTemplatesDelete(id string) error {
+	if !delForce && !confirm(fmt.Sprintf("Delete template %s? This cannot be undone.", id)) {
+		return nil
+	}
+	client, err := jwtClient()
+	if err != nil {
+		return err
+	}
+	if _, err := client.Delete("/templates/" + id); err != nil {
+		return err
+	}
+	fmt.Printf("%s Deleted %s\n", color.GreenString("✓"), id)
+	return nil
 }
 
 func jwtClient() (*api.Client, error) {
