@@ -12,7 +12,7 @@ import (
 func addUsageCommand() {
 	usageCmd := &cobra.Command{
 		Use:   "usage",
-		Short: "Show your usage for the current billing period",
+		Short: "Show your current-month usage stats and credit balance",
 		RunE:  runUsage,
 	}
 	rootCmd.AddCommand(usageCmd)
@@ -68,59 +68,52 @@ func runUsage(cmd *cobra.Command, args []string) error {
 		period = u.YearMonth
 	}
 
-	// Best-effort plan limits from GET /user/profile. The getProfile handler
-	// returns subscriptionLimits (sourced from SUBSCRIPTION_PLANS in
-	// mkpdfs-backend/src/libs/middleware/subscription.ts). On error, skip the
-	// "X / Y" columns and just print the raw counts.
-	limits, plan, haveLimits := fetchLimits(client)
+	// Best-effort profile read for limits + credit balance. On error, skip those
+	// lines and just print the raw stats. Note: the prepaid-credits model dropped
+	// the old monthly page cap — there is NO per-month PDF limit anymore, so the
+	// page counter below is a plain stat, not "used / limit".
+	limits, sub, haveProfile := fetchProfile(client)
 
 	bold := color.New(color.Bold)
-	if plan != "" {
-		bold.Printf("Usage — %s (%s plan)\n\n", period, plan)
-	} else {
-		bold.Printf("Usage — %s\n\n", period)
+	bold.Printf("Usage — %s\n\n", period)
+
+	if haveProfile {
+		fmt.Printf("  Credit balance:     %s\n\n", creditBalanceString(sub))
 	}
-	if haveLimits {
-		fmt.Printf("  PDFs generated:    %s\n", limitLine(u.PagesGenerated, limits.PagesPerMonth))
-		fmt.Printf("  Templates:         %s\n", limitLine(u.TemplatesUploaded, limits.TemplatesAllowed))
-		fmt.Printf("  API tokens:        %s\n", limitLine(u.TokensCreated, limits.APITokensAllowed))
+
+	fmt.Printf("  PDF pages generated: %d\n", u.PagesGenerated)
+	if haveProfile {
+		fmt.Printf("  Templates:           %s\n", limitLine(u.TemplatesUploaded, limits.TemplatesAllowed))
+		fmt.Printf("  API tokens:          %s\n", limitLine(u.TokensCreated, limits.APITokensAllowed))
 	} else {
-		fmt.Printf("  PDFs generated:    %d\n", u.PagesGenerated)
-		fmt.Printf("  Templates:         %d\n", u.TemplatesUploaded)
-		fmt.Printf("  API tokens:        %d\n", u.TokensCreated)
+		fmt.Printf("  Templates:           %d\n", u.TemplatesUploaded)
+		fmt.Printf("  API tokens:          %d\n", u.TokensCreated)
 	}
-	fmt.Printf("  Data generated:    %s\n", util.FormatBytes(u.BytesGenerated))
+	fmt.Printf("  Data generated:      %s\n", util.FormatBytes(u.BytesGenerated))
 	fmt.Println()
+	fmt.Println("  Detailed credit history: mkp credits ledger")
 	return nil
 }
 
-// subscriptionLimits mirrors the SubscriptionLimits interface in
-// mkpdfs-backend/src/libs/middleware/subscription.ts. A value of -1 means
-// unlimited.
+// subscriptionLimits mirrors the limits the getProfile handler returns. A value of
+// -1 means unlimited. The old `pagesPerMonth` field was removed in the prepaid-credits
+// migration and is intentionally absent here.
 type subscriptionLimits struct {
-	PagesPerMonth    int `json:"pagesPerMonth"`
 	TemplatesAllowed int `json:"templatesAllowed"`
 	APITokensAllowed int `json:"apiTokensAllowed"`
 }
 
-// fetchLimits reads subscriptionLimits + plan from GET /user/profile.
-func fetchLimits(client *api.Client) (subscriptionLimits, string, bool) {
+// fetchProfile reads limits + subscription (plan, creditBalance) from GET /user/profile.
+func fetchProfile(client *api.Client) (subscriptionLimits, subscriptionInfo, bool) {
 	resp, err := client.Get("/user/profile")
 	if err != nil {
-		return subscriptionLimits{}, "", false
+		return subscriptionLimits{}, subscriptionInfo{}, false
 	}
-	var profile struct {
-		Data struct {
-			Subscription struct {
-				Plan string `json:"plan"`
-			} `json:"subscription"`
-			SubscriptionLimits subscriptionLimits `json:"subscriptionLimits"`
-		} `json:"data"`
+	var p profileResponse
+	if err := resp.Unmarshal(&p); err != nil {
+		return subscriptionLimits{}, subscriptionInfo{}, false
 	}
-	if err := resp.Unmarshal(&profile); err != nil {
-		return subscriptionLimits{}, "", false
-	}
-	return profile.Data.SubscriptionLimits, profile.Data.Subscription.Plan, true
+	return p.Data.SubscriptionLimits, p.Data.Subscription, true
 }
 
 // limitLine formats "used / limit", rendering -1 as "unlimited".

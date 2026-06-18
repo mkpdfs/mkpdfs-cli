@@ -93,6 +93,7 @@ func init() {
 	addTemplatesCommands()
 	addPdfCommands()
 	addTokensCommands()
+	addCreditsCommands()
 	addUsageCommand()
 	addConfigCommands()
 

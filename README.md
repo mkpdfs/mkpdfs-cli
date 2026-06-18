@@ -6,6 +6,14 @@
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew install mkpdfs/mkpdfs/mkpdfs
+```
+
+This installs the `mkp` binary (macOS/Linux, Intel + Apple Silicon).
+
 ### Build from source
 
 Requires Go 1.21+.
@@ -23,8 +31,6 @@ Two binaries coexist deliberately (same convention as nikte-cli):
 
 - **`mkp`** — the production binary, installed from Homebrew (`brew install mkpdfs/mkpdfs/mkpdfs`, built by GoReleaser from `.goreleaser.yml` on tagged releases).
 - **`mkp-cli`** — the local dev build (`make build` / `make dev-link`), named differently so it never shadows the brew-installed `mkp`.
-
-No Homebrew release has been tagged yet; until then, build from source.
 
 ---
 
@@ -88,7 +94,12 @@ mkp-cli
 │   ├── create      Create a new API token (--name required; --save to store in config)
 │   └── revoke <id> Revoke an API token
 │
-├── usage           Show current period usage and plan limits
+├── credits         Show credit balance and auto-recharge status
+│   ├── ledger      Show recent credit ledger entries (most recent 50)
+│   ├── auto-recharge   Show settings, or --enable [--threshold N] / --disable
+│   └── buy         Buy a credit pack (opens Stripe checkout in your browser)
+│
+├── usage           Show current-month usage stats and credit balance
 │
 └── config
     ├── list        List configuration (secrets masked)
@@ -107,6 +118,24 @@ Global flags available on every command:
 | `--verbose` / `-v` | Verbose output |
 
 ---
+
+## Credits & billing
+
+mkpdfs is prepaid: **$10 = 1,000 credits, 1 credit = 1 PDF page**, and credits never
+expire. PDF generation is blocked with a `402` once your balance is exhausted.
+
+```bash
+mkp credits                              # balance + auto-recharge status
+mkp credits ledger                       # recent ledger entries (most recent 50)
+mkp credits auto-recharge                # show current setting
+mkp credits auto-recharge --enable --threshold 100   # recharge when balance < 100
+mkp credits auto-recharge --disable
+mkp credits buy                          # opens Stripe checkout in your browser
+```
+
+> **Note:** the `credits` commands (and `templates`, `tokens`, `usage`) require a
+> browser login — they authenticate with your Cognito session, **not** an API key.
+> `MKPDFS_API_KEY` / `--api-key` only works for `pdf generate`.
 
 ## Environments
 
@@ -144,7 +173,7 @@ MKPDFS_API_KEY=tlfy_... mkp-cli pdf generate \
 
 The `--api-key` flag routes the request through the server-to-server endpoint (`POST /v1/pdf/generate`). The template ID must be a UUID (not a local file path), because `.mkpdfs.json` is typically absent in CI.
 
-**Important:** `templates`, `tokens`, and `auth` commands require a browser login (Cognito JWT) and are not available headless in v1. Create tokens and push templates from a developer workstation before running CI jobs.
+**Important:** every command except `pdf generate` — `templates`, `tokens`, `auth`, `usage`, and `credits` — requires a browser login (Cognito JWT) and is not available headless in v1. Create tokens, push templates, and top up credits from a developer workstation before running CI jobs.
 
 ---
 

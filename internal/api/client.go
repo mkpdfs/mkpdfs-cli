@@ -142,8 +142,8 @@ func parseAPIError(status int, body []byte) error {
 	switch {
 	case (status == 401 || status == 403) && authish:
 		return errors.New("session expired or invalid. Run: mkp auth login")
-	case status == 402 || strings.Contains(lower, "subscription"):
-		return errors.New(base + " — see https://mkpdfs.com/pricing")
+	case status == 402:
+		return errors.New(base + " — buy credits: mkp credits buy")
 	case (status == 403 || status == 429) && strings.Contains(lower, "limit"):
 		return errors.New(base + " — check: mkp usage")
 	default:
