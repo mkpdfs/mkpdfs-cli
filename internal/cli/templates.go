@@ -35,7 +35,12 @@ var (
 	pushForce  bool
 	pushDryRun bool
 	delForce   bool
+	tplAPIKey  bool
 )
+
+// maxTemplateBytes caps template source sent to the API. API Gateway REST has a
+// 10 MB request limit; base64 inflates ~33%, so 6.5 MiB leaves room for JSON overhead.
+const maxTemplateBytes = 6_815_744 // 6.5 * 1024 * 1024
 
 func addTemplatesCommands() {
 	tplCmd := &cobra.Command{Use: "templates", Aliases: []string{"tpl"}, Short: "Manage templates"}
@@ -79,6 +84,9 @@ func addTemplatesCommands() {
 	}
 	deleteCmd.Flags().BoolVar(&delForce, "force", false, "skip confirmation prompt")
 
+	tplCmd.PersistentFlags().BoolVar(&tplAPIKey, "api-key", false,
+		"authenticate with MKPDFS_API_KEY / saved API key (server-to-server, no browser login)")
+
 	tplCmd.AddCommand(listCmd, getCmd, pullCmd, pushCmd, deleteCmd)
 	requireSubcommand(tplCmd)
 	rootCmd.AddCommand(tplCmd)
@@ -118,16 +126,22 @@ func runTemplatesPush(file string) error {
 	if _, err := hbs.Validate(string(content)); err != nil {
 		return fmt.Errorf("handlebars syntax error in %s: %v: %w", file, err, ErrUsage)
 	}
+	if len(content) > maxTemplateBytes {
+		return fmt.Errorf("template %s is %s; the API limit is 6.5 MiB: %w",
+			file, util.FormatBytes(int64(len(content))), ErrUsage)
+	}
 
-	client, err := jwtClient()
+	client, prefix, err := templatesClient()
 	if err != nil {
 		return err
 	}
 
 	var userID string
-	if creds := config.Get().Creds(env.Name); creds != nil && creds.IDToken != "" {
-		if payload, err := auth.DecodeJWT(creds.IDToken); err == nil && payload != nil {
-			userID = payload.Sub
+	if !tplAPIKey {
+		if creds := config.Get().Creds(env.Name); creds != nil && creds.IDToken != "" {
+			if payload, err := auth.DecodeJWT(creds.IDToken); err == nil && payload != nil {
+				userID = payload.Sub
+			}
 		}
 	}
 
@@ -162,6 +176,7 @@ func runTemplatesPush(file string) error {
 		Force:           pushForce,
 		ForceID:         pushID,
 		ForceNew:        pushNew,
+		APIKeyMode:      tplAPIKey,
 	})
 	if err != nil {
 		return err
@@ -193,9 +208,9 @@ func runTemplatesPush(file string) error {
 
 	var resp *api.Response
 	if decision.Action == pushCreate {
-		resp, err = client.Post("/templates/upload", body)
+		resp, err = client.Post(prefix+"/upload", body)
 	} else {
-		resp, err = client.Put("/templates/"+decision.TemplateID, body)
+		resp, err = client.Put(prefix+"/"+decision.TemplateID, body)
 		if err != nil && resp != nil && resp.StatusCode == 404 {
 			return fmt.Errorf("remote template %s no longer exists — your .mkpdfs.json entry is stale. Push with --new to create it again: %w",
 				decision.TemplateID, ErrUsage)
@@ -255,11 +270,11 @@ func runTemplatesDelete(id string) error {
 	if !delForce && !confirm(fmt.Sprintf("Delete template %s? This cannot be undone.", id)) {
 		return nil
 	}
-	client, err := jwtClient()
+	client, prefix, err := templatesClient()
 	if err != nil {
 		return err
 	}
-	if _, err := client.Delete("/templates/" + id); err != nil {
+	if _, err := client.Delete(prefix + "/" + id); err != nil {
 		return err
 	}
 	fmt.Printf("%s Deleted %s\n", color.GreenString("✓"), id)
@@ -289,12 +304,34 @@ func jwtClient() (*api.Client, error) {
 	return api.New(env).WithJWT()
 }
 
+// templatesPrefix returns the route prefix for templates given the auth mode.
+func templatesPrefix(apiKey bool) string {
+	if apiKey {
+		return "/v1/templates"
+	}
+	return "/templates"
+}
+
+// templatesClient builds the API client + route prefix honoring --api-key.
+func templatesClient() (*api.Client, string, error) {
+	env, err := currentEnv()
+	if err != nil {
+		return nil, "", err
+	}
+	if tplAPIKey {
+		c, err := api.New(env).WithAPIKey()
+		return c, templatesPrefix(true), err
+	}
+	c, err := api.New(env).WithJWT()
+	return c, templatesPrefix(false), err
+}
+
 func fetchTemplate(id string) (*templateMeta, error) {
-	client, err := jwtClient()
+	client, prefix, err := templatesClient()
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Get("/templates/" + id)
+	resp, err := client.Get(prefix + "/" + id)
 	if err != nil {
 		return nil, err
 	}
@@ -308,11 +345,11 @@ func fetchTemplate(id string) (*templateMeta, error) {
 }
 
 func runTemplatesList(cmd *cobra.Command, args []string) error {
-	client, err := jwtClient()
+	client, prefix, err := templatesClient()
 	if err != nil {
 		return err
 	}
-	resp, err := client.Get("/templates")
+	resp, err := client.Get(prefix)
 	if err != nil {
 		return err
 	}
