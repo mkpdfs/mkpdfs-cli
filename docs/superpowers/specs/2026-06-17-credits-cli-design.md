@@ -43,13 +43,28 @@ Confirmed by source inspection of mkpdfs-backend:
   pack (no quantity param). JWT-only.
 
 All four use the Cognito Gateway authorizer (`iamOnlyMiddleware`, no API key). The
-CLI already has `jwtClient()` for exactly this, used by `usage`.
+CLI already has `jwtClient()` for exactly this, used by `usage`. **Consequence:**
+the entire `credits` group requires a browser login (`mkp auth login`) and does
+**not** work with `MKPDFS_API_KEY` / `--api-key`. This must be stated in the README
+`credits` section, and any "not authenticated" path uses the existing
+`jwtClient()` error (`Run "mkp auth login"`).
+
+> **Review note (codex, 2026-06-17):** initial spec was No-Go; the points below are
+> folded into the relevant sections. Key corrections: ledger `amount` is **already
+> signed** by the backend (debit stored as `-amount`, purchase/recharge positive,
+> refund negative — verified in `creditService.ts`), so render as-is, never re-sign;
+> `--json` must stay machine-readable everywhere (no bare URLs); the parent `mkp
+> credits` cannot reuse `requireSubcommand` (it overwrites `RunE`); credit values
+> decode as JSON numbers but are whole credits — format as integers; all leaf
+> commands get `cobra.NoArgs`; browser open goes through a package-level indirection
+> for testability; credits endpoints are JWT-only — say so in docs and errors.
 
 ## Command surface
 
 New file `internal/cli/credits.go`, wired in `root.go` via `addCreditsCommands()`.
 Parent command + four behaviors. All accept the global `--json`/`--env` flags and
-use `jwtClient()`.
+use `jwtClient()`. Every leaf command sets `Args: cobra.NoArgs` so stray positional
+args become usage errors (exit 2) instead of being silently ignored.
 
 ```
 mkp credits                 # balance + auto-recharge status at a glance
@@ -78,15 +93,25 @@ Credits — 1,240 remaining
   (`-30 remaining`) plus a hint: `Buy credits to continue: mkp credits buy`.
 - `--json` prints the relevant profile subset (balance, autoRecharge, threshold,
   autoRechargeError, plan).
-- Parent with an action: unlike pure parents, a bare `mkp credits` runs this (does
-  not print help). Unknown subcommands still exit 2 via the existing guard pattern.
+- Balance renders as a whole integer with thousands separators (`1,240`), never a
+  float (the JSON number decodes to `float64` but credits are whole pages).
+- **Parent with an action — and `requireSubcommand` must NOT be used here.**
+  `requireSubcommand` (root.go) overwrites `RunE`, which would clobber this command's
+  own balance action. Instead `mkp credits` defines its own `RunE`: known
+  subcommands (`ledger`, `auto-recharge`, `buy`) are routed by Cobra; a bare
+  `mkp credits` runs the balance view; and `mkp credits <unknown>` arrives in this
+  `RunE` as a positional arg, so `RunE` returns the same `unknown command … : %w
+  ErrUsage` error (exit 2) when `len(args) > 0`.
 
 ### `mkp credits ledger`
 
 Reads `GET /billing/ledger`. Table columns: `DATE  TYPE  AMOUNT  BALANCE  DESCRIPTION`.
-- `amount` shown with sign; debits/refunds negative. Color used only when stdout is
-  a TTY and `--json` is off (green for credits in, default for debits) — never break
-  `--json` or piped output.
+- **`amount` is already signed by the backend** (debit/refund negative,
+  purchase/recharge positive). Render it verbatim — do **not** infer or re-apply a
+  sign from `type` (that would double-negate debits). Format as a whole integer with
+  thousands separators and an explicit `+`/`-`.
+- Color used only when stdout is a TTY and `--json` is off (green for positive
+  amounts, default for negative) — never break `--json` or piped output.
 - `balanceAfter` null → blank cell. `description` null → blank.
 - Empty list → `No ledger entries yet.`
 - Exactly 50 rows → footer `(showing most recent 50)`.
@@ -95,29 +120,43 @@ Reads `GET /billing/ledger`. Table columns: `DATE  TYPE  AMOUNT  BALANCE  DESCRI
 ### `mkp credits auto-recharge`
 
 - **No flags:** read `/user/profile`, print current setting
-  (`Auto-recharge is on (threshold 100)` / `... is off`).
+  (`Auto-recharge is on (threshold 100)` / `... is off`). `--json` → the
+  `{autoRecharge, rechargeThreshold}` subset.
 - **`--enable`:** `PUT { enabled:true, threshold:<N or omitted> }`. `--threshold`
   validated client-side as int in `[1,1000]`; out of range → usage error (exit 2).
 - **`--disable`:** `PUT { enabled:false }`.
-- `--enable` and `--disable` are mutually exclusive → usage error if both.
-- On `400 NO_PAYMENT_METHOD`, print actionable message:
-  `No saved card. Buy a credit pack first: mkp credits buy` (exit 1).
-- On success, echo the resulting state from the response.
+- **Flag-combination rules (all usage errors → exit 2):** `--enable` + `--disable`
+  together; `--threshold` without `--enable`; `--disable` + `--threshold`.
+- **`NO_PAYMENT_METHOD` handling (implementation detail).** `client.Put` returns
+  `(resp, err)` where `err` is the generic parsed message on HTTP ≥400. The handler
+  must inspect `resp` even when `err != nil`: if `resp.StatusCode == 400` and the
+  body decodes to `error == "NO_PAYMENT_METHOD"`, print the actionable message
+  `No saved card. Buy a credit pack first: mkp credits buy` (exit 1); otherwise
+  surface the generic `err`.
+- On success, echo the resulting state from the response. `--json` → the raw
+  `{autoRecharge, rechargeThreshold}` response.
 
 ### `mkp credits buy`
 
-`POST /stripe/create-checkout-session` (empty body) → open `url` with the existing
-`browser.OpenURL` (same helper `auth login` uses). Prints the URL too, so the user
-can copy it. With `--json`, or if `browser.OpenURL` returns an error (headless), do
-not attempt to open — just print the URL. Opens directly (no confirmation prompt) —
-checkout itself is the confirmation step, and the action is read-only until the user
-pays in the browser.
+`POST /stripe/create-checkout-session` (empty body) → returns `{success, url,
+sessionId}`.
+- **`--json`:** print the raw response (machine-readable), do **not** open a browser.
+- **Human mode:** print the URL (so it is always visible/copyable), then attempt to
+  open it. Browser-open is indirected through a package-level `var openURL =
+  browser.OpenURL` so tests can stub it; `auth login` calls `browser.OpenURL`
+  directly today, so this introduces the seam. If `openURL` returns an error, the
+  command still succeeds (exit 0) — the URL was already printed; emit a one-line
+  note that the browser could not be opened.
+- Opens directly (no confirmation prompt) — checkout is the confirmation step and
+  nothing is charged until the user pays in the browser.
 
 ## Changes to existing files
 
 ### `internal/cli/usage.go`
-- Drop the `PagesGenerated / PagesPerMonth` line and the `PagesPerMonth` field from
-  the `subscriptionLimits` struct (dead field).
+- Drop only the dead **limit** `PagesPerMonth` (and remove that field from the
+  `subscriptionLimits` struct). **Keep** the current-month count itself — render it
+  as a plain `PDF pages generated: N` line (no `/ limit` denominator). The monthly
+  stats are still useful; only the obsolete cap is removed.
 - Drop the "billing period" framing; header becomes `Usage — YYYY-MM` (the month is
   still meaningful for the stats counters).
 - Show credit balance at the top (pulled from the same `/user/profile` call
@@ -139,6 +178,15 @@ pays in the browser.
 - Add a `credits` section documenting the new commands.
 - Update the command tree and the `usage` description (stats, not "billing period").
 
+### Enterprise plan
+
+`enterprise` is unlimited/manually-billed. The CLI does **not** add client-side
+gating for `buy` / `auto-recharge` on enterprise accounts — it forwards the request
+and lets the backend respond (keeps the CLI simple and avoids encoding billing
+policy in the client). The only enterprise special-case is display: both
+`mkp credits` and the balance line in `mkp usage` show `unlimited` rather than a
+number when `plan == "enterprise"`.
+
 ## Go structs
 
 - Extend the profile-decode struct (currently inline in `fetchLimits`) to also read
@@ -152,13 +200,25 @@ pays in the browser.
 
 ## Testing
 
-- Unit tests with `httptest.Server` (mirroring `internal/api/client_test.go` and the
-  existing command tests) for: balance render (normal / enterprise / negative /
-  autoRechargeError), ledger (populated table, empty, 50-row footer), auto-recharge
-  (show / enable / enable+threshold / disable / 400 NO_PAYMENT_METHOD / both flags
-  error / out-of-range threshold), buy (URL printed; browser-open skipped under
-  `--json`). Assert exit-code contract (usage errors → 2).
-- `usage` test updated: no longer expects a pages limit; asserts balance line present.
+The repo currently has unit tests at the API and push-logic level
+(`internal/api/client_test.go`, `internal/cli/push_logic_test.go`) but **no Cobra
+command harness**. This work adds a thin one: a helper that builds the command with
+an `httptest.Server` base URL and captured stdout/stderr, returning output + error,
+reused across credits tests. Pure formatting (balance line, ledger row, amount sign)
+is also factored into small functions tested directly without HTTP.
+
+- Tests with `httptest.Server` for: balance render (normal / enterprise=`unlimited` /
+  negative / autoRechargeError warning), ledger (populated table with signed amounts
+  rendered verbatim, empty, exactly-50 footer), auto-recharge (show / enable /
+  enable+threshold / disable / 400 NO_PAYMENT_METHOD via `resp` inspection / both
+  flags error / `--threshold` without `--enable` / `--disable --threshold` /
+  out-of-range threshold), buy (human mode prints URL + calls stubbed `openURL`;
+  `--json` prints raw body and does **not** call `openURL`; `openURL` error still
+  exits 0). Assert the exit-code contract (usage errors → 2) via `errors.Is(err,
+  ErrUsage)`.
+- The `openURL` package var is stubbed in buy tests (no real browser launch).
+- `usage` test updated: no longer expects a pages *limit*; asserts the
+  `PDF pages generated: N` count line and the credit-balance line are present.
 - `scripts/smoke.sh`: add `mkp credits` and `mkp credits ledger` read-only checks vs
   dev.
 - `make test` and `make build` green before commit.
