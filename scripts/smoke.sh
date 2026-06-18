@@ -24,6 +24,12 @@ echo "--- generate PDF ---"
 
 [ -s smoke.pdf ] && echo "OK: smoke.pdf generated ($(wc -c < smoke.pdf) bytes)"
 
+echo "--- credits balance (read-only) ---"
+"$BIN" --env dev credits
+
+echo "--- credits ledger (read-only) ---"
+"$BIN" --env dev credits ledger
+
 echo "--- read templateId from .mkpdfs.json ---"
 ID=$(python3 -c "import json;print(json.load(open('.mkpdfs.json'))['templates']['smoke.hbs']['templateId'])")
 echo "templateId: $ID"

@@ -50,16 +50,16 @@ func TestParseAPIErrorMapping(t *testing.T) {
 			want:   "session expired or invalid. Run: mkp auth login",
 		},
 		{
-			name:   "402 → pricing guidance appended",
+			name:   "402 → buy-credits guidance appended",
 			status: 402,
-			body:   `{"message":"Payment required"}`,
-			want:   "Payment required — see https://mkpdfs.com/pricing",
+			body:   `{"message":"You have no PDF credits."}`,
+			want:   "You have no PDF credits. — buy credits: mkp credits buy",
 		},
 		{
-			name:   "subscription message → pricing guidance appended",
+			name:   "subscription wording is no longer special-cased → raw message",
 			status: 403,
 			body:   `{"message":"Your subscription is not active"}`,
-			want:   "Your subscription is not active — see https://mkpdfs.com/pricing",
+			want:   "Your subscription is not active",
 		},
 		{
 			name:   "403 limit → usage guidance appended",
