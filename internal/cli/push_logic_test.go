@@ -121,6 +121,31 @@ func TestGuardMapEnv(t *testing.T) {
 	}
 }
 
+func TestAPIKeyModeUnknownRequiresNewOrID(t *testing.T) {
+	// unknown file, no --new, no --id, api-key mode → usage error
+	_, err := decidePush(pushInput{File: "invoice.hbs", Map: entryMap("dev", "u1", nil),
+		ActiveEnv: "dev", APIKeyMode: true})
+	if err == nil || !errors.Is(err, ErrUsage) {
+		t.Fatalf("want ErrUsage requiring --new/--id, got %v", err)
+	}
+	// same but --new → create
+	d, err := decidePush(pushInput{File: "invoice.hbs", Map: entryMap("dev", "u1", nil),
+		ActiveEnv: "dev", APIKeyMode: true, ForceNew: true})
+	if err != nil || d.Action != pushCreate {
+		t.Fatalf("want create with --new, got %+v err=%v", d, err)
+	}
+}
+
+func TestAPIKeyModeSkipsAccountGuard(t *testing.T) {
+	e := &localmap.Entry{TemplateID: "t1"}
+	// map owned by another account, api-key mode, empty caller UserID → still updates
+	d, err := decidePush(pushInput{File: "invoice.hbs", Map: entryMap("dev", "other", e),
+		ActiveEnv: "dev", UserID: "", APIKeyMode: true})
+	if err != nil || d.Action != pushUpdate || d.TemplateID != "t1" {
+		t.Fatalf("api-key mode must skip account guard, got %+v err=%v", d, err)
+	}
+}
+
 func TestParsePushResultRejectsMissingTemplateID(t *testing.T) {
 	if _, err := parsePushResult([]byte(`{"name":"demo","updatedAt":"2026-06-12T00:00:00Z"}`)); err == nil {
 		t.Fatal("missing templateId must be rejected")

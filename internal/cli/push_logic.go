@@ -22,6 +22,7 @@ type pushInput struct {
 	Force           bool
 	ForceID         string // --id
 	ForceNew        bool   // --new
+	APIKeyMode      bool   // --api-key: no JWT, so skip account guard; require known/--new/--id
 }
 
 type pushDecision struct {
@@ -40,10 +41,22 @@ func decidePush(in pushInput) (pushDecision, error) {
 		return pushDecision{Action: pushUpdate, TemplateID: in.ForceID}, nil
 	}
 	entry, known := in.Map.Templates[localmap.Key(in.File)]
-	if in.ForceNew || !known {
+	if !known {
+		// In api-key (CI) mode, refuse to silently create on a missing mapping —
+		// a retried pipeline would duplicate the template. Require --new (or --id).
+		if in.APIKeyMode && !in.ForceNew {
+			return pushDecision{}, fmt.Errorf(
+				"no .mkpdfs.json entry for %q — pass --new to create a template or --id <templateId> to update an existing one: %w",
+				in.File, ErrUsage)
+		}
 		return pushDecision{Action: pushCreate}, nil
 	}
-	if in.Map.UserID != "" && in.Map.UserID != in.UserID && !in.Force {
+	if in.ForceNew {
+		return pushDecision{Action: pushCreate}, nil
+	}
+	// Account guard does not apply in api-key mode (no JWT caller identity; the
+	// token's userId enforces ownership server-side).
+	if !in.APIKeyMode && in.Map.UserID != "" && in.Map.UserID != in.UserID && !in.Force {
 		return pushDecision{}, fmt.Errorf(
 			".mkpdfs.json was created by another account (%s). Use --force to push anyway: %w",
 			in.Map.UserID, ErrUsage)
