@@ -24,6 +24,10 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Determine bump type
         id: bump
         run: |
@@ -74,3 +78,16 @@ jobs:
           git commit -m "Bump version to ${{ steps.new.outputs.version }}"
           git tag -a "v${{ steps.new.outputs.version }}" -m "Release v${{ steps.new.outputs.version }}"
           git push origin main --follow-tags
+
+      # Run GoReleaser INLINE here rather than relying on release.yml's tag trigger:
+      # the tag above is pushed with GITHUB_TOKEN, and GitHub deliberately does NOT
+      # fire workflows for GITHUB_TOKEN pushes, so release.yml would never run for an
+      # auto-release. Releasing in this same job sidesteps that (HEAD is the tagged
+      # commit). release.yml still handles manually-pushed tags.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
