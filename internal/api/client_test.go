@@ -130,6 +130,27 @@ func TestRequestAttachesAPIKey(t *testing.T) {
 	}
 }
 
+func TestRequestAttachesApiKey(t *testing.T) {
+	var gotKey, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("x-api-key")
+		gotAuth = r.Header.Get("Authorization")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL, apiKey: "tlfy_abc"}
+	if _, err := c.do("GET", "/x", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "tlfy_abc" {
+		t.Fatalf("x-api-key = %q, want tlfy_abc", gotKey)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization should be empty in api-key mode, got %q", gotAuth)
+	}
+}
+
 func TestErrorResponseReturnsParsedError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)

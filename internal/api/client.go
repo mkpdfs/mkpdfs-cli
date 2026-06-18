@@ -85,6 +85,9 @@ func (c *Client) do(method, path string, body any, headers map[string]string) (*
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
