@@ -35,6 +35,54 @@ func resp(status int, body string) *api.Response {
 	return &api.Response{StatusCode: status, Body: json.RawMessage(body)}
 }
 
+// --- Cobra-level routing / flag parsing ---
+//
+// These build a fresh command tree per case (newCreditsCmd) so package-level flag
+// vars don't leak across executions. They exercise paths that return BEFORE any
+// network call (arg/flag validation), so no live API is needed.
+
+func execCredits(args ...string) error {
+	cmd := newCreditsCmd()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs(args)
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	return cmd.Execute()
+}
+
+// wouldExit2 mirrors the exit-code decision in root.go's Execute(): an error is a
+// usage error (exit 2) if it wraps ErrUsage OR matches isUsageError (cobra's own
+// "unknown command" / arg-validation errors). The routing cases below land in both
+// buckets, so assert the contract the CLI actually applies.
+func wouldExit2(err error) bool {
+	return err != nil && (errors.Is(err, ErrUsage) || isUsageError(err))
+}
+
+func TestCreditsUnknownSubcommandIsUsageError(t *testing.T) {
+	if err := execCredits("bogus"); !wouldExit2(err) {
+		t.Fatalf("want usage error (exit 2) for unknown subcommand, got %v", err)
+	}
+}
+
+func TestCreditsLeafRejectsExtraArgs(t *testing.T) {
+	if err := execCredits("ledger", "extra"); !wouldExit2(err) {
+		t.Fatalf("want usage error (exit 2) for extra arg on ledger, got %v", err)
+	}
+}
+
+func TestCreditsAutoRechargeFlagConflictThroughCobra(t *testing.T) {
+	if err := execCredits("auto-recharge", "--enable", "--disable"); !wouldExit2(err) {
+		t.Fatalf("want usage error (exit 2) for --enable+--disable, got %v", err)
+	}
+}
+
+func TestCreditsAutoRechargeThresholdWithoutEnableThroughCobra(t *testing.T) {
+	if err := execCredits("auto-recharge", "--threshold", "50"); !wouldExit2(err) {
+		t.Fatalf("want usage error (exit 2) for --threshold without --enable, got %v", err)
+	}
+}
+
 // --- formatting ---
 
 func TestFormatCredits(t *testing.T) {

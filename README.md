@@ -173,7 +173,7 @@ MKPDFS_API_KEY=tlfy_... mkp-cli pdf generate \
 
 The `--api-key` flag routes the request through the server-to-server endpoint (`POST /v1/pdf/generate`). The template ID must be a UUID (not a local file path), because `.mkpdfs.json` is typically absent in CI.
 
-**Important:** `templates`, `tokens`, and `auth` commands require a browser login (Cognito JWT) and are not available headless in v1. Create tokens and push templates from a developer workstation before running CI jobs.
+**Important:** every command except `pdf generate` — `templates`, `tokens`, `auth`, `usage`, and `credits` — requires a browser login (Cognito JWT) and is not available headless in v1. Create tokens, push templates, and top up credits from a developer workstation before running CI jobs.
 
 ---
 

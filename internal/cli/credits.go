@@ -80,6 +80,13 @@ type checkoutResponse struct {
 }
 
 func addCreditsCommands() {
+	rootCmd.AddCommand(newCreditsCmd())
+}
+
+// newCreditsCmd builds the `credits` command tree. It's a builder (not wired
+// straight into rootCmd) so tests can construct a fresh tree per case and avoid
+// shared flag state across Cobra executions.
+func newCreditsCmd() *cobra.Command {
 	// Parent has its OWN action (balance) — so it canNOT use requireSubcommand,
 	// which overwrites RunE. Instead runCreditsBalance treats any leftover arg
 	// (an unknown subcommand) as a usage error (exit 2).
@@ -114,7 +121,7 @@ func addCreditsCommands() {
 	}
 
 	creditsCmd.AddCommand(ledgerCmd, autoRechargeCmd, buyCmd)
-	rootCmd.AddCommand(creditsCmd)
+	return creditsCmd
 }
 
 // --- balance (parent action) ---
@@ -219,7 +226,13 @@ func creditsLedger(c creditsAPI, w io.Writer, asJSON bool) error {
 		if e.Description != nil {
 			desc = *e.Description
 		}
-		table.Append([]string{shortTime(e.CreatedAt), e.Type, formatSignedCredits(e.Amount), bal, desc})
+		amt := formatSignedCredits(e.Amount)
+		if e.Amount > 0 {
+			// Credits-in stand out; color.GreenString is a no-op when stdout
+			// isn't a TTY (so --json and piped output stay clean).
+			amt = color.GreenString(amt)
+		}
+		table.Append([]string{shortTime(e.CreatedAt), e.Type, amt, bal, desc})
 	}
 	table.Render()
 
