@@ -37,4 +37,18 @@ echo "templateId: $ID"
 echo "--- delete template ---"
 "$BIN" --env dev templates delete "$ID" --force
 
+if [[ -n "${MKPDFS_API_KEY:-}" ]]; then
+  echo "--- headless: templates list via --api-key ---"
+  "$BIN" --env dev templates list --api-key >/dev/null && echo "OK: api-key list"
+  echo "--- headless: create + update + delete via --api-key ---"
+  printf '<h1>{{t}}</h1>' > ci.hbs
+  "$BIN" --env dev templates push ci.hbs --api-key --new --yes
+  "$BIN" --env dev templates push ci.hbs --api-key --yes
+  CIID=$(python3 -c "import json;print(json.load(open('.mkpdfs.json'))['templates']['ci.hbs']['templateId'])")
+  "$BIN" --env dev templates delete "$CIID" --api-key --force
+  echo "OK: api-key CRUD"
+else
+  echo "--- skipping headless api-key checks (set MKPDFS_API_KEY to run) ---"
+fi
+
 echo "SMOKE PASSED"
