@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "0.2.0" // set at build time via ldflags
+var Version = "0.3.0" // set at build time via ldflags
 
 // usage/local-validation errors exit 2; everything else exits 1.
 var ErrUsage = errors.New("usage error")
