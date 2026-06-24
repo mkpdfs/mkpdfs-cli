@@ -11,13 +11,15 @@ The workflow, end to end:
   3. Push template  mkp templates push carta.hbs
   4. Generate PDF   mkp pdf generate -t carta.hbs -d datos.json -o carta.pdf
 
-Notes:
+Read a specific topic with a flag:
 
-  * The default environment is PROD. Add `--env dev` to any command to work on
-    dev first (recommended while iterating), e.g. `mkp --env dev templates push …`.
-  * Page size lives in the template CSS: `@page { size: A4; margin: 2cm }`.
-  * `--api-key` (with MKPDFS_API_KEY) runs templates/pdf commands headless, with
-    no browser login — for CI and servers.
+  mkp instructions --format        # .hbs format: HTML/CSS, @page, variables, helpers
+  mkp instructions --auth          # authentication: login, whoami, --api-key
+  mkp instructions --environments  # dev vs prod and how to switch
+  mkp instructions --plans         # plans, credits and limits
+  mkp instructions --agent         # everything, framed for an AI coding agent
+
+You can combine topic flags, e.g. `mkp instructions --format --plans`.
 
 Building with an AI agent? Run `mkp instructions --agent` and hand the output to
-it — it's a complete, copy-pasteable walkthrough written for coding agents.
+it — a complete, copy-pasteable walkthrough written for coding agents.

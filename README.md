@@ -101,8 +101,12 @@ mkp-cli
 │
 ├── usage           Show current-month usage stats and credit balance
 │
-├── instructions    Print the mkpdfs workflow guide
-│   └── --agent     Emit a markdown walkthrough for an AI coding agent
+├── instructions    Print the mkpdfs workflow guide (topic flags below)
+│   ├── --format        template format: HTML/CSS, @page, variables, helpers
+│   ├── --auth          authentication: login, whoami, --api-key
+│   ├── --environments  dev vs prod and how to switch
+│   ├── --plans         plans, credits and limits
+│   └── --agent         everything, framed for an AI coding agent
 │
 └── config
     ├── list        List configuration (secrets masked)
@@ -128,14 +132,20 @@ If you use an AI coding agent (Claude Code, Cursor, …), point it at the built-
 instructions instead of explaining the format yourself:
 
 ```bash
-mkp instructions --agent      # dense, copy-pasteable walkthrough for an agent
-mkp instructions              # short human guide
+mkp instructions                 # short human guide + topic menu
+mkp instructions --agent         # dense, copy-pasteable walkthrough for an agent
+mkp instructions --format        # just the .hbs format + helpers
+mkp instructions --auth          # just authentication
+mkp instructions --environments  # just dev vs prod
+mkp instructions --plans         # just plans, credits and limits
 ```
 
-`mkp instructions --agent` prints a complete, offline markdown doc — the `.hbs`
-format (HTML + CSS, `@page` size), the available Handlebars helpers with their
-exact signatures, a worked `carta.hbs` + `datos.json` example, and the exact
-`templates push` / `pdf generate` commands. Just tell your agent:
+`mkp instructions --agent` prints a complete, offline markdown doc — environments
+(dev vs prod), authentication, the `.hbs` format (HTML + CSS, `@page` size) with
+the Handlebars helpers and their exact signatures, a worked `carta.hbs` +
+`datos.json` example with the exact `templates push` / `pdf generate` commands,
+and plans/credits/limits. Each topic flag prints just that section (combine them,
+e.g. `mkp instructions --format --plans`). Just tell your agent:
 
 > "Create a mkpdfs love-letter template. Get the format from `mkp instructions --agent`."
 

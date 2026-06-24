@@ -16,12 +16,22 @@ a Handlebars `.hbs`, pushing it, generating a PDF.
 
 ## Solution
 
-A new top-level command:
+A new top-level command whose content is split into **topic sections**, each
+reachable by its own flag:
 
-- `mkp instructions` — short human-readable guide (what the workflow is, the key
-  commands, a pointer to `--agent`).
-- `mkp instructions --agent` — a dense, copy-pasteable markdown doc addressed to
-  an AI agent that walks the full workflow.
+- `mkp instructions` — short human-readable guide + a menu of the topic flags.
+- `mkp instructions --format` — the `.hbs` format (HTML/CSS, `@page`, variables,
+  helpers).
+- `mkp instructions --auth` — authentication (login, whoami, `--api-key`).
+- `mkp instructions --environments` — dev vs prod and how to switch. (Named
+  `--environments`, NOT `--env`, because `--env` is the global persistent flag.)
+- `mkp instructions --plans` — plans, credits and limits.
+- `mkp instructions --agent` — a dense, copy-pasteable doc addressed to an AI
+  agent that composes ALL sections (agent intro → environments → auth → format →
+  worked example → plans) into a full walkthrough.
+
+Topic flags combine (`--format --plans` prints both sections, joined by a `---`
+rule, in canonical order). `--agent` implies everything and ignores topic flags.
 
 Content is **static markdown embedded in the binary** via `go:embed`. No auth, no
 network, works offline, and versions in lockstep with the CLI (the commands it
@@ -32,20 +42,22 @@ documents always match that build).
 - `Use: "instructions"`, `Args: cobra.NoArgs` (so `mkp instructions foo` exits 2
   via the normal usage-error path — do NOT call `requireSubcommand`; this command
   has its own action and no children).
-- One bool flag: `--agent` (default false).
+- Five bool flags: `--agent`, `--format`, `--auth`, `--environments`, `--plans`
+  (all default false). Request-scoped (bound in `newInstructionsCmd`) so no
+  package-level flag state leaks across executions.
 - Writes to `cmd.OutOrStdout()`. **No color/ANSI** — output must be clean for
   agents capturing stdout and for `mkp instructions --agent > mkpdfs.md`.
-- Honors no other global flags meaningfully (`--json` is irrelevant; the body is
-  prose). Do not special-case it.
 
 ### Files
 
-- `internal/cli/instructions.go` — command definition + `//go:embed` directives.
-- `internal/cli/instructions_agent.md` — the agent doc (embedded).
-- `internal/cli/instructions_human.md` — the human guide (embedded).
+- `internal/cli/instructions.go` — command definition + `//go:embed` directives +
+  `joinSections` composer.
+- Embedded section files: `instructions_human.md`, `instr_agent_intro.md`,
+  `instr_environments.md`, `instr_auth.md`, `instr_format.md`, `instr_example.md`,
+  `instr_plans.md`.
 - Registered via `addInstructionsCommands()` in `root.go` `init()`.
 
-### Agent doc content (`instructions_agent.md`)
+### Agent doc content (composed sections)
 
 Addressed in second person to an AI agent. Sections, in order:
 
@@ -101,11 +113,14 @@ an AI agent? Run `mkp instructions --agent` and hand the output to it."
 
 `internal/cli/instructions_test.go`:
 
-- Executing `instructions` (human) prints non-empty output and contains a known
-  marker (e.g. `templates push`).
-- Executing `instructions --agent` prints non-empty output and contains key
-  markers: each helper name (`ifEq`, `formatDate`, `formatCurrency`), `@page`,
-  `templates push`, `pdf generate`, `--env dev`, `auth whoami`.
+- `instructions` (human) prints the workflow + the topic-flag menu.
+- Each topic flag (`--format`, `--auth`, `--environments`, `--plans`) prints its
+  section, asserted via section-specific markers (e.g. `--plans` → `1,000 credits`,
+  `enterprise`, `INSUFFICIENT_CREDITS`).
+- Combining flags (`--format --plans`) prints both sections joined by a `---` rule.
+- `instructions --agent` contains markers spanning every composed section
+  (helpers, `@page`, `templates push`, `pdf generate`, `--env dev`, `auth whoami`,
+  `1,000 credits`) and the explicit "no `auth status`" steer.
 - `instructions foo` is a usage error (exit 2 / NoArgs).
 
 The embedded docs are static, so the test doubles as a guard against accidentally
