@@ -101,6 +101,9 @@ mkp-cli
 │
 ├── usage           Show current-month usage stats and credit balance
 │
+├── instructions    Print the mkpdfs workflow guide
+│   └── --agent     Emit a markdown walkthrough for an AI coding agent
+│
 └── config
     ├── list        List configuration (secrets masked)
     ├── get <key>   Get a config value
@@ -116,6 +119,29 @@ Global flags available on every command:
 | `--json` | Machine-readable JSON output |
 | `--yes` | Assume yes for all confirmation prompts |
 | `--verbose` / `-v` | Verbose output |
+
+---
+
+## Building templates with an AI agent
+
+If you use an AI coding agent (Claude Code, Cursor, …), point it at the built-in
+instructions instead of explaining the format yourself:
+
+```bash
+mkp instructions --agent      # dense, copy-pasteable walkthrough for an agent
+mkp instructions              # short human guide
+```
+
+`mkp instructions --agent` prints a complete, offline markdown doc — the `.hbs`
+format (HTML + CSS, `@page` size), the available Handlebars helpers with their
+exact signatures, a worked `carta.hbs` + `datos.json` example, and the exact
+`templates push` / `pdf generate` commands. Just tell your agent:
+
+> "Create a mkpdfs love-letter template. Get the format from `mkp instructions --agent`."
+
+The agent runs the command, reads the output, and builds + pushes the template
+end to end. Output is plain stdout, so you can also save it:
+`mkp instructions --agent > mkpdfs.md`.
 
 ---
 
