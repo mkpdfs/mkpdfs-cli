@@ -101,6 +101,13 @@ mkp-cli
 │
 ├── usage           Show current-month usage stats and credit balance
 │
+├── instructions    Print the mkpdfs workflow guide (topic flags below)
+│   ├── --format        template format: HTML/CSS, @page, variables, helpers
+│   ├── --auth          authentication: login, whoami, --api-key
+│   ├── --environments  dev vs prod and how to switch
+│   ├── --plans         plans, credits and limits
+│   └── --agent         everything, framed for an AI coding agent
+│
 └── config
     ├── list        List configuration (secrets masked)
     ├── get <key>   Get a config value
@@ -116,6 +123,35 @@ Global flags available on every command:
 | `--json` | Machine-readable JSON output |
 | `--yes` | Assume yes for all confirmation prompts |
 | `--verbose` / `-v` | Verbose output |
+
+---
+
+## Building templates with an AI agent
+
+If you use an AI coding agent (Claude Code, Cursor, …), point it at the built-in
+instructions instead of explaining the format yourself:
+
+```bash
+mkp instructions                 # short human guide + topic menu
+mkp instructions --agent         # dense, copy-pasteable walkthrough for an agent
+mkp instructions --format        # just the .hbs format + helpers
+mkp instructions --auth          # just authentication
+mkp instructions --environments  # just dev vs prod
+mkp instructions --plans         # just plans, credits and limits
+```
+
+`mkp instructions --agent` prints a complete, offline markdown doc — environments
+(dev vs prod), authentication, the `.hbs` format (HTML + CSS, `@page` size) with
+the Handlebars helpers and their exact signatures, a worked `carta.hbs` +
+`datos.json` example with the exact `templates push` / `pdf generate` commands,
+and plans/credits/limits. Each topic flag prints just that section (combine them,
+e.g. `mkp instructions --format --plans`). Just tell your agent:
+
+> "Create a mkpdfs love-letter template. Get the format from `mkp instructions --agent`."
+
+The agent runs the command, reads the output, and builds + pushes the template
+end to end. Output is plain stdout, so you can also save it:
+`mkp instructions --agent > mkpdfs.md`.
 
 ---
 

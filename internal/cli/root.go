@@ -96,6 +96,7 @@ func init() {
 	addCreditsCommands()
 	addUsageCommand()
 	addConfigCommands()
+	addInstructionsCommands()
 
 	// Every parent command (children but no own action) gets the unknown-subcommand
 	// guard so unknown args exit 2 instead of silently printing help and exiting 0.
